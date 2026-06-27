@@ -1,0 +1,17 @@
+{
+  "name": "mexc-hedge-bot",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node server/index.js",
+    "start": "node server/index.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@solana/web3.js": "^1.95.0",
+    "bs58": "^4.0.0",
+    "dotenv": "^16.4.1",
+    "express": "^4.21.1"
+  }
+}

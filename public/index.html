@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MEXC Hedge Bot Dashboard</title>
+    <style>
+      :root { color-scheme: dark; font-family: Inter, system-ui, sans-serif; }
+      body { margin: 0; background: #07111f; color: #f4f7fb; }
+      .app { max-width: 1200px; margin: 0 auto; padding: 24px; }
+      .card { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); border-radius: 16px; padding: 18px; margin-bottom: 16px; }
+      .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
+      button, input, select { padding: 10px 12px; border-radius: 10px; border: 1px solid #2f4f6f; background: #0f2031; color: white; }
+      button { cursor: pointer; background: linear-gradient(135deg, #2d6cdf, #3cb8b8); border: none; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.1); text-align: left; }
+      .pill { display: inline-flex; padding: 4px 8px; border-radius: 999px; background: rgba(255,255,255,0.1); font-size: 12px; }
+      .status-live { color: #54e38f; }
+      .status-paper { color: #ffd166; }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <h1>MEXC Hedge Bot Dashboard</h1>
+      <p>Live monitoring for the hedge bot lifecycle, trade state, and market scans.</p>
+
+      <div class="card">
+        <h2>System Overview</h2>
+        <div class="grid" id="overview"></div>
+      </div>
+
+      <div class="card">
+        <h2>Controls</h2>
+        <div class="grid">
+          <div>
+            <label>Mode</label>
+            <select id="modeSelect">
+              <option value="paper">Paper</option>
+              <option value="live">Live</option>
+            </select>
+          </div>
+          <div>
+            <label>Symbol</label>
+            <input id="symbolInput" type="text" />
+          </div>
+          <div>
+            <label>Minimum Profit ($)</label>
+            <input id="profitInput" type="number" step="0.01" />
+          </div>
+          <div>
+            <label>Scan Interval (s)</label>
+            <input id="intervalInput" type="number" />
+          </div>
+          <button id="saveSettings">Save Settings</button>
+          <button id="runScan">Run Scan</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Recent Trades</h2>
+        <table>
+          <thead>
+            <tr><th>Time</th><th>Symbol</th><th>Status</th><th>PnL</th><th>Note</th></tr>
+          </thead>
+          <tbody id="tradeRows"></tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <h2>Recent Logs</h2>
+        <table>
+          <thead>
+            <tr><th>Time</th><th>Stage</th><th>Level</th><th>Symbol</th><th>Message</th></tr>
+          </thead>
+          <tbody id="logRows"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <script>
+      async function loadState() {
+        const res = await fetch('/api/state');
+        const data = await res.json();
+        renderOverview(data);
+        renderTrades(data.trades);
+        renderLogs(data.logs);
+        document.getElementById('modeSelect').value = data.settings.mode || 'paper';
+        document.getElementById('symbolInput').value = data.settings.symbol || 'SOLUSDT';
+        document.getElementById('profitInput').value = data.settings.minNetProfitUsd || 0.6;
+        document.getElementById('intervalInput').value = (data.settings.scanIntervalMs || 30000) / 1000;
+      }
+
+      function renderOverview(data) {
+        const overview = document.getElementById('overview');
+        const mode = data.settings.mode || 'paper';
+        const trades = data.trades || [];
+        const logs = data.logs || [];
+        overview.innerHTML = `
+          <div class="card"><strong>Status</strong><div class="${mode === 'live' ? 'status-live' : 'status-paper'}">${mode.toUpperCase()}</div></div>
+          <div class="card"><strong>Open Trades</strong><div>${trades.filter(t => t.status !== 'complete').length}</div></div>
+          <div class="card"><strong>Recent Events</strong><div>${logs.length}</div></div>
+          <div class="card"><strong>Min Profit</strong><div>$${(data.settings.minNetProfitUsd || 0.6).toFixed(2)}</div></div>
+        `;
+      }
+
+      function renderTrades(trades) {
+        const rows = document.getElementById('tradeRows');
+        rows.innerHTML = (trades || []).slice(0, 8).map(trade => `
+          <tr>
+            <td>${new Date(trade.startedAt).toLocaleString()}</td>
+            <td>${trade.symbol}</td>
+            <td><span class="pill">${trade.status}</span></td>
+            <td>${Number(trade.realizedPnLUsd || 0).toFixed(2)}</td>
+            <td>${trade.note || ''}</td>
+          </tr>
+        `).join('');
+      }
+
+      function renderLogs(logs) {
+        const rows = document.getElementById('logRows');
+        rows.innerHTML = (logs || []).slice(0, 10).map(log => `
+          <tr>
+            <td>${new Date(log.timestamp).toLocaleString()}</td>
+            <td>${log.stage}</td>
+            <td>${log.level}</td>
+            <td>${log.symbol}</td>
+            <td>${log.message}</td>
+          </tr>
+        `).join('');
+      }
+
+      document.getElementById('saveSettings').onclick = async () => {
+        await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            mode: document.getElementById('modeSelect').value,
+            symbol: document.getElementById('symbolInput').value,
+            minNetProfitUsd: Number(document.getElementById('profitInput').value),
+            scanIntervalMs: Number(document.getElementById('intervalInput').value) * 1000
+          })
+        });
+        await loadState();
+      };
+
+      document.getElementById('runScan').onclick = async () => {
+        const result = await fetch('/api/scan', { method: 'POST' });
+        const payload = await result.json();
+        await fetch('/api/logs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ stage: 'scan', level: payload.ok ? 'info' : 'error', message: payload.reason || payload.error || 'Scan complete', symbol: 'SOLUSDT' }) });
+        await loadState();
+      };
+
+      loadState();
+    </script>
+  </body>
+</html>
